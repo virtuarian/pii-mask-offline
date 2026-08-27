@@ -1,0 +1,5 @@
+transformers>=4.46
+optimum[exporters]>=1.23
+onnx>=1.17
+onnxruntime>=1.20
+torch>=2.4
