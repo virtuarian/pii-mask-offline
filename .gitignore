@@ -7,3 +7,6 @@ dev-dist/
 # Generated model binaries (see public/models/README.md to regenerate)
 public/models/*/
 !public/models/README.md
+
+# Synced from node_modules/onnxruntime-web at dev/build time (see vite.config.ts)
+public/ort/

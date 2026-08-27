@@ -18,6 +18,14 @@ function configureLocalOnlyModels(): void {
   env.allowRemoteModels = false;
   env.allowLocalModels = true;
   env.localModelPath = "/models/";
+  // We alias "onnxruntime-web" to its wasm-only (non-WebGPU/jsep) entry in
+  // vite.config.ts to roughly halve the mandatory first-load download. That
+  // entry resolves its wasm binary's URL dynamically, which Vite/Rollup
+  // can't statically bundle, so we serve it ourselves (also synced by
+  // vite.config.ts) and point onnxruntime-web at it explicitly.
+  if (env.backends.onnx.wasm) {
+    env.backends.onnx.wasm.wasmPaths = "/ort/";
+  }
   configured = true;
 }
 

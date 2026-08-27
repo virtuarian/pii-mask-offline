@@ -27,6 +27,23 @@ export const MODEL_ASSETS_CACHE_NAME = `model-assets-v${MODEL_CACHE_VERSION}`;
   ONNX Runtime Web の wasm バイナリ（NER層の実行に必須のため、常時プリキャッシュ対象）。
 - **`model-assets-v{N}`**: `public/models/ner-ja/` 配下（NERモデル本体・トークナイザ）。
 
+### ONNX Runtime Web wasm のサイズ最適化
+
+`@huggingface/transformers` は既定で `onnxruntime-web` のフルビルド
+（WebGPU/JSEPサポート込み、wasmバイナリ約21.6MB）を読み込む。本アプリは
+WebGPUを使わず常に `wasm` 実行プロバイダのみを使うため、`vite.config.ts` の
+`resolve.alias` で `onnxruntime-web` → `onnxruntime-web/wasm`
+（wasm専用ビルド、約11.1MB）へ差し替え、初回必須ダウンロードを約半減させている。
+
+この wasm-only ビルドは wasm バイナリのURLを実行時に動的組み立てするため、
+Vite/Rollupが静的解析でアセットとして検出できない。そのため
+`vite.config.ts` が `node_modules/onnxruntime-web/dist/` から
+`public/ort/ort-wasm-simd-threaded.wasm` へ自動同期し（`npm install` 後の
+初回 `vite`/`vite build` 実行時に同期される。バイナリ自体はリポジトリに
+コミットしない、`.gitignore` 参照）、`src/lib/detectors/ner/pipeline.ts` が
+`env.backends.onnx.wasm.wasmPaths = "/ort/"` を明示設定してこの
+同一オリジンパスから読み込ませている。
+
 分離した理由: アプリのUIだけを更新した場合に `APP_CACHE_VERSION` のみ上げれば済み、
 数十MBのモデル再ダウンロードを毎回のリリースで強制しないため。逆にモデルを
 差し替えた場合は `MODEL_CACHE_VERSION` のみを上げる。
@@ -74,7 +91,8 @@ Layer 3（LLM補助層）のアセット（`@wllama/wllama` の wasm、GGUFモ�
   Service Workerのキャッシュ容量上限やバックグラウンドでの
   Cache Storage自動退避（ストレージ逼迫時）はOS/ブラウザのバージョンに
   強く依存するため、実機での動作確認を別途行うこと（要件にも明記されている通り）。
-- 初回プリキャッシュ総量は、ONNX Runtime Web の wasm バイナリ単体で約20MB、
+- 初回プリキャッシュ総量は、ONNX Runtime Web の wasm バイナリ単体で約11MB
+  （wasm-only ビルドへの最適化後。上記「ONNX Runtime Web wasm のサイズ最適化」参照）、
   NERモデル（量子化後、未生成の場合は `public/models/README.md` の手順で生成）を
   加えると数十MB〜となる見込み。モバイル回線での初回体験について、
   UI側で進捗表示（`StatusBar` の「モデル準備中…」表示）を行っているが、
