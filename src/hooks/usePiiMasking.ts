@@ -2,7 +2,6 @@ import { useCallback, useState } from "react";
 import { detectByRules } from "../lib/detectors/rules";
 import { resolveOverlaps } from "../lib/detectors/merge";
 import { getLlmResolver } from "../lib/detectors/llm";
-import { maskText, type MaskResult } from "../lib/mask";
 import type { Span } from "../lib/detectors/types";
 import type { NerDetection } from "../lib/detectors/ner/pipeline";
 import { useNerModel, type NerModelStatus } from "./useNerModel";
@@ -13,25 +12,31 @@ export interface UsePiiMaskingOptions {
 }
 
 export interface UsePiiMasking {
-  process: (text: string) => Promise<MaskResult>;
+  process: (text: string) => Promise<Span[]>;
   isProcessing: boolean;
   nerStatus: NerModelStatus;
+  /** Set when nerStatus is "error"; the underlying failure message, for display. */
+  nerError: string | null;
 }
 
 /**
  * Runs the full detection pipeline for one input: Layer 1 (rules, always),
  * Layer 2 (NER, once the model is ready), and — only for NER hits the model
  * itself flagged as ambiguous, and only if llmEnabled — Layer 3 as a final
- * tie-break. Overlapping spans are then resolved by source priority and
- * handed to maskText for deterministic replacement.
+ * tie-break. Overlapping spans are then resolved by source priority.
+ *
+ * Returns the resolved spans rather than a rendered MaskResult: the caller
+ * keeps them as editable state (see ChatLayout/ResultBubble) so a user
+ * correction -- reverting a false positive, recategorizing, or adding a
+ * missed span -- can be applied and re-rendered without rerunning detection.
  */
 export function usePiiMasking(options: UsePiiMaskingOptions = {}): UsePiiMasking {
   const { llmEnabled = false } = options;
-  const { status: nerStatus, detect } = useNerModel();
+  const { status: nerStatus, error: nerError, detect } = useNerModel();
   const [isProcessing, setIsProcessing] = useState(false);
 
   const process = useCallback(
-    async (text: string): Promise<MaskResult> => {
+    async (text: string): Promise<Span[]> => {
       setIsProcessing(true);
       try {
         const ruleSpans = detectByRules(text);
@@ -56,8 +61,7 @@ export function usePiiMasking(options: UsePiiMaskingOptions = {}): UsePiiMasking
           }
         }
 
-        const allSpans = resolveOverlaps([...ruleSpans, ...nerSpans]);
-        return maskText(text, allSpans);
+        return resolveOverlaps([...ruleSpans, ...nerSpans]);
       } finally {
         setIsProcessing(false);
       }
@@ -65,5 +69,5 @@ export function usePiiMasking(options: UsePiiMaskingOptions = {}): UsePiiMasking
     [nerStatus, detect, llmEnabled],
   );
 
-  return { process, isProcessing, nerStatus };
+  return { process, isProcessing, nerStatus, nerError };
 }

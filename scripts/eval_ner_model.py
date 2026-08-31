@@ -54,7 +54,16 @@ STOCKMARK_MAP = {
     "地名": "ADDRESS",
     "施設名": "ADDRESS",
 }
-CONLL_STYLE_MAP = {"PER": "PERSON", "PERSON": "PERSON", "ORG": "ORGANIZATION", "LOC": "ADDRESS", "GPE": "ADDRESS"}
+CONLL_STYLE_MAP = {
+    "PER": "PERSON",
+    "PERSON": "PERSON",
+    "ORG": "ORGANIZATION",
+    "ORG-P": "ORGANIZATION",
+    "ORG-O": "ORGANIZATION",
+    "LOC": "ADDRESS",
+    "GPE": "ADDRESS",
+    "INS": "ADDRESS",
+}
 
 
 def map_label(raw_label: str):

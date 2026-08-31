@@ -16,12 +16,22 @@ import type { LlmJudgement, LlmResolver } from "./resolver";
  */
 const LOCAL_GGUF_URL = "/models/llm-ja/model.gguf";
 
+/**
+ * Wraps the instruction in Qwen2.5-Instruct's ChatML template
+ * (`<|im_start|>role\n...<|im_end|>`). This is not cosmetic: an
+ * instruction-tuned model is fine-tuned to follow instructions only inside
+ * this exact wrapper. Fed the same instruction as a plain completion prompt
+ * (no wrapper), this model degenerated into echoing the same category for
+ * every input regardless of context -- confirmed empirically (see
+ * docs/MODEL_SELECTION.md's LLM layer section) by testing raw vs.
+ * ChatML-wrapped prompts against identical candidates.
+ */
 function buildPrompt(
   candidate: string,
   context: string,
   options: readonly EntityCategory[],
 ): string {
-  return [
+  const instruction = [
     "あなたは個人情報検出システムの補助判定器です。",
     "次の文字列がどの分類に該当するか、選択肢の中から1つだけ答えてください。",
     "文章を書き換えたり説明を加えたりせず、分類名のみを出力してください。",
@@ -29,9 +39,8 @@ function buildPrompt(
     `文脈: ${context}`,
     `対象文字列: 「${candidate}」`,
     `選択肢: ${options.join(", ")}`,
-    "",
-    "分類名:",
   ].join("\n");
+  return `<|im_start|>user\n${instruction}<|im_end|>\n<|im_start|>assistant\n`;
 }
 
 function parseCategory(

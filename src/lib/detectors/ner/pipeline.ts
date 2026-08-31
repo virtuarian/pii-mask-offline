@@ -18,6 +18,17 @@ function configureLocalOnlyModels(): void {
   env.allowRemoteModels = false;
   env.allowLocalModels = true;
   env.localModelPath = "/models/";
+  // Transformers.js has its own opaque, unversioned Cache Storage bucket
+  // ("transformers-cache", see its hub.js) that it writes to regardless of
+  // any custom Service Worker -- confirmed by inspecting Cache Storage
+  // after a real load. Left enabled, it silently double-caches the ~278MB
+  // model (once there, once in this app's own versioned model-assets
+  // cache -- see service-worker.ts/cache-config.ts), and useOfflineStatus's
+  // readiness check has no way to know about it, so the UI never reports
+  // "ready" even once the model is fully cached and usable offline. This
+  // app's own SW cache is the deliberate, versioned source of truth (see
+  // docs/CACHING_STRATEGY.md), so disable the library's redundant one.
+  env.useBrowserCache = false;
   // We alias "onnxruntime-web" to its wasm-only (non-WebGPU/jsep) entry in
   // vite.config.ts to roughly halve the mandatory first-load download. That
   // entry resolves its wasm binary's URL dynamically, which Vite/Rollup
@@ -59,13 +70,42 @@ function stripBioPrefix(label: string): string {
 }
 
 /**
- * transformers.js's token-classification pipeline returns one prediction per
- * token (unlike the Python HF pipeline's `aggregation_strategy`), so entity
- * grouping has to happen here: consecutive tokens sharing the same bare
- * entity type (B-/I- prefix stripped) and forming a contiguous character
- * range are merged into a single span, using the run's minimum score as a
- * conservative confidence estimate.
+ * transformers.js's TokenClassificationPipeline never computes character
+ * offsets at all (the underlying JS tokenizer has no offset-mapping support,
+ * unlike Python's fast tokenizers -- see its own "TODO: Add support for
+ * start and end" in pipelines.js) and returns one prediction per token
+ * (unlike the Python HF pipeline's `aggregation_strategy`), so both offset
+ * recovery and entity grouping have to happen here: assignCharOffsets()
+ * re-locates each token's decoded text in the original string, then
+ * consecutive tokens sharing the same bare entity type (B-/I- prefix
+ * stripped) and forming a contiguous character range are merged into a
+ * single span, using the run's minimum score as a conservative confidence
+ * estimate.
  */
+
+/**
+ * Recovers each token's [start, end) character span by searching for its
+ * decoded text in `text`, scanning forward from the end of the previous
+ * match. This is a best-effort substitute for real offset-mapping (which
+ * the JS tokenizer doesn't provide): the pipeline already strips
+ * non-entity ("O") tokens out of the sequence before we see it, so gaps
+ * between matches (untagged text) are expected and simply skipped over.
+ * A token whose decoded text can't be found from the current cursor
+ * onward (e.g. a tokenizer normalization mismatch) is left without an
+ * offset and dropped by aggregateEntities.
+ */
+export function assignCharOffsets<T extends { word: string }>(
+  text: string,
+  tokens: T[],
+): Array<T & { start?: number; end?: number }> {
+  let cursor = 0;
+  return tokens.map((token) => {
+    const index = text.indexOf(token.word, cursor);
+    if (index === -1) return token;
+    cursor = index + token.word.length;
+    return { ...token, start: index, end: cursor };
+  });
+}
 export function aggregateEntities(
   tokens: Array<{ entity: string; score: number; start?: number; end?: number }>,
 ): Array<{ label: string; start: number; end: number; score: number }> {
@@ -91,13 +131,88 @@ export function aggregateEntities(
   return groups;
 }
 
+/**
+ * The tokenizer truncates to the model's 512-token limit (see
+ * `model_max_length` in public/models/ner-ja/tokenizer_config.json) with no
+ * warning, so anything past that point is silently never scanned by NER on
+ * long input. 400 characters is a conservative budget under that limit even
+ * in the worst case of ~1 token per character (this tokenizer's SentencePiece
+ * vocab mostly assigns whole Japanese characters their own token, so real
+ * chunks run well under it).
+ */
+const NER_CHUNK_MAX_CHARS = 400;
+
+/**
+ * Splits `text` into chunks of at most `maxChars`, preferring to cut right
+ * after a sentence-ending character (`。！？` or a newline) so a single
+ * entity rarely straddles a chunk boundary. Falls back to a hard cut only
+ * when one "sentence" by itself exceeds `maxChars`. The chunks always
+ * concatenate back to exactly `text` -- this only decides where to cut, it
+ * never drops or alters characters.
+ */
+export function chunkText(text: string, maxChars: number): Array<{ text: string; offset: number }> {
+  if (text.length <= maxChars) return [{ text, offset: 0 }];
+
+  const pieces: string[] = [];
+  let pieceStart = 0;
+  for (let i = 0; i < text.length; i++) {
+    if ("。！？\n".includes(text[i])) {
+      pieces.push(text.slice(pieceStart, i + 1));
+      pieceStart = i + 1;
+    }
+  }
+  if (pieceStart < text.length) pieces.push(text.slice(pieceStart));
+
+  const chunks: Array<{ text: string; offset: number }> = [];
+  let pos = 0;
+  let current = "";
+  let currentStart = 0;
+
+  for (const piece of pieces) {
+    if (piece.length > maxChars) {
+      if (current) {
+        chunks.push({ text: current, offset: currentStart });
+        current = "";
+      }
+      for (let i = 0; i < piece.length; i += maxChars) {
+        chunks.push({ text: piece.slice(i, i + maxChars), offset: pos + i });
+      }
+    } else if (current.length + piece.length > maxChars) {
+      chunks.push({ text: current, offset: currentStart });
+      current = piece;
+      currentStart = pos;
+    } else {
+      if (current === "") currentStart = pos;
+      current += piece;
+    }
+    pos += piece.length;
+  }
+  if (current) chunks.push({ text: current, offset: currentStart });
+
+  return chunks;
+}
+
 export async function detectByNer(text: string): Promise<NerDetection[]> {
   if (text.trim() === "") return [];
   const classify = await loadPipeline();
-  // Single-string input always yields the flat TokenClassificationSingle[]
-  // form (never the batch TokenClassificationOutput[] form); the pipeline's
-  // callback type doesn't encode that per-overload, hence the cast.
-  const tokens = (await classify(text)) as TokenClassificationSingle[];
+
+  const tokens: Array<{ entity: string; score: number; start?: number; end?: number }> = [];
+  for (const chunk of chunkText(text, NER_CHUNK_MAX_CHARS)) {
+    // Single-string input always yields the flat TokenClassificationSingle[]
+    // form (never the batch TokenClassificationOutput[] form); the
+    // pipeline's callback type doesn't encode that per-overload, hence the
+    // cast. Chunks are run sequentially, not in parallel, since the ONNX
+    // Runtime Web wasm session isn't guaranteed safe for concurrent Run()
+    // calls.
+    const rawTokens = (await classify(chunk.text)) as TokenClassificationSingle[];
+    for (const token of assignCharOffsets(chunk.text, rawTokens)) {
+      tokens.push({
+        ...token,
+        start: token.start === undefined ? undefined : token.start + chunk.offset,
+        end: token.end === undefined ? undefined : token.end + chunk.offset,
+      });
+    }
+  }
 
   const entities = aggregateEntities(tokens);
 

@@ -16,9 +16,17 @@ describe("mapNerLabel", () => {
     expect(mapNerLabel("B-LOC")).toBe("ADDRESS");
   });
 
+  it("maps tsmatz/xlm-roberta-ner-japanese's suffixed org/institution tags", () => {
+    expect(mapNerLabel("ORG-P")).toBe("ORGANIZATION");
+    expect(mapNerLabel("ORG-O")).toBe("ORGANIZATION");
+    expect(mapNerLabel("INS")).toBe("ADDRESS");
+  });
+
   it("returns null for O and unmapped labels", () => {
     expect(mapNerLabel("O")).toBeNull();
     expect(mapNerLabel("B-製品名")).toBeNull();
+    expect(mapNerLabel("PRD")).toBeNull();
+    expect(mapNerLabel("EVT")).toBeNull();
     expect(mapNerLabel("")).toBeNull();
   });
 });

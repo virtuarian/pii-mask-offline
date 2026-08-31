@@ -8,7 +8,7 @@
 
 ```
 pip install -r ../../scripts/requirements.txt
-python ../../scripts/convert_ner_model.py --model knosing/japanese_ner_model --output ner-ja
+python ../../scripts/convert_ner_model.py --model tsmatz/xlm-roberta-ner-japanese --output ner-ja
 python ../../scripts/eval_ner_model.py --model-dir ner-ja
 ```
 

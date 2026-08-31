@@ -8,9 +8,14 @@ import type { EntityCategory } from "../types";
  * Two label vocabularies are supported out of the box because the exact
  * label set depends on which fine-tuned checkpoint is wired in via
  * scripts/prepare-model (see docs/MODEL_SELECTION.md):
- *  - The Stockmark "ner-wikipedia-dataset" convention (Japanese label names),
- *    used by several tohoku-bert-base-japanese fine-tunes.
- *  - The generic CoNLL-style convention (PER/ORG/LOC/MISC).
+ *  - The Stockmark "ner-wikipedia-dataset" convention with Japanese label
+ *    names (人名/法人名/... ).
+ *  - The same Stockmark dataset relabeled with English CoNLL-style tags
+ *    (PER/ORG/ORG-P/ORG-O/LOC/INS/...), as used by
+ *    tsmatz/xlm-roberta-ner-japanese -- our current default, chosen because
+ *    its SentencePiece tokenizer ships a Transformers.js-compatible
+ *    tokenizer.json, unlike tohoku-bert-base-japanese fine-tunes (which
+ *    require MeCab and have no fast-tokenizer implementation).
  *
  * If a newly chosen checkpoint uses a different vocabulary, extend the two
  * maps below to match its `config.json` id2label values.
@@ -28,8 +33,11 @@ const CONLL_STYLE_MAP: Record<string, EntityCategory> = {
   PER: "PERSON",
   PERSON: "PERSON",
   ORG: "ORGANIZATION",
+  "ORG-P": "ORGANIZATION",
+  "ORG-O": "ORGANIZATION",
   LOC: "ADDRESS",
   GPE: "ADDRESS",
+  INS: "ADDRESS",
 };
 
 /** Strips a leading BIO prefix ("B-", "I-") if present. */

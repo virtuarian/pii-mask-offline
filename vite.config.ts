@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig, type Plugin } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
@@ -16,16 +16,44 @@ const pkg = JSON.parse(
 // node_modules on every `vite` invocation so it can't drift after a
 // dependency bump; not committed to git (see .gitignore).
 function syncOrtWasmAsset(): void {
-  const src = fileURLToPath(
-    new URL("./node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm", import.meta.url),
-  );
   const destDir = fileURLToPath(new URL("./public/ort/", import.meta.url));
-  const dest = `${destDir}ort-wasm-simd-threaded.wasm`;
-  if (existsSync(dest) && statSync(dest).size === statSync(src).size) return;
   mkdirSync(destDir, { recursive: true });
-  copyFileSync(src, dest);
+  // The .wasm binary is loaded via wasmPaths (pipeline.ts); onnxruntime-web
+  // also dynamically imports the .mjs loader next to it at init time, so
+  // both must be served from the same same-origin directory.
+  for (const name of ["ort-wasm-simd-threaded.wasm", "ort-wasm-simd-threaded.mjs"]) {
+    const src = fileURLToPath(new URL(`./node_modules/onnxruntime-web/dist/${name}`, import.meta.url));
+    const dest = `${destDir}${name}`;
+    if (existsSync(dest) && statSync(dest).size === statSync(src).size) continue;
+    copyFileSync(src, dest);
+  }
 }
 syncOrtWasmAsset();
+
+// onnxruntime-web loads its .mjs wasm-loader via a native `import()`, not a
+// fetch. In `vite build`/`vite preview` that's just a same-origin static
+// file request and works fine, but `vite dev`'s transform middleware
+// intercepts anything imported as a module -- including files under
+// public/ -- and refuses to serve them ("should not be imported from source
+// code"), breaking NER model loading in dev only. Serve this one file
+// ourselves, ahead of Vite's own middleware, to sidestep that guard.
+function serveOrtMjsInDev(): Plugin {
+  const filePath = fileURLToPath(new URL("./public/ort/ort-wasm-simd-threaded.mjs", import.meta.url));
+  return {
+    name: "serve-ort-mjs-in-dev",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url?.split("?")[0] === "/ort/ort-wasm-simd-threaded.mjs") {
+          res.setHeader("Content-Type", "text/javascript");
+          res.end(readFileSync(filePath));
+          return;
+        }
+        next();
+      });
+    },
+  };
+}
 
 export default defineConfig({
   define: {
@@ -42,6 +70,7 @@ export default defineConfig({
     },
   },
   plugins: [
+    serveOrtMjsInDev(),
     react(),
     VitePWA({
       strategies: "injectManifest",
@@ -49,7 +78,11 @@ export default defineConfig({
       filename: "service-worker.ts",
       injectManifest: {
         // Model assets are large; raise the default 2 MiB precache limit.
-        maximumFileSizeToCacheInBytes: 80 * 1024 * 1024,
+        // The xlm-roberta-ner-japanese ONNX model alone is ~278 MB quantized
+        // (see docs/MODEL_SELECTION.md) -- Workbox silently drops any file
+        // over this limit from the precache manifest instead of erroring, so
+        // keep this comfortably above the actual public/models/ner-ja/ size.
+        maximumFileSizeToCacheInBytes: 320 * 1024 * 1024,
         // Includes the ONNX Runtime Web wasm binary (required for the core,
         // always-on NER layer) alongside JS/CSS/HTML/icons and the NER model
         // files. Excludes the wllama wasm/model: Layer 3 is opt-in/experimental

@@ -12,8 +12,16 @@ public/models/ner-ja/ directory.
 Usage:
     pip install -r scripts/requirements.txt
     python scripts/convert_ner_model.py \
-        --model knosing/japanese_ner_model \
+        --model tsmatz/xlm-roberta-ner-japanese \
         --output public/models/ner-ja
+
+Note: the checkpoint's tokenizer must have a "fast" (tokenizer.json) form --
+Transformers.js can't load anything else, and can't run tokenizers requiring
+external morphological analyzers like MeCab (rules out tohoku-nlp/bert-base-
+japanese-* fine-tunes; see docs/MODEL_SELECTION.md for how this was found).
+Some checkpoints also don't ship their own tokenizer files on the Hub at all
+(e.g. knosing/japanese_ner_model) -- check the model card for the base
+tokenizer to pass via --tokenizer. If omitted, --tokenizer defaults to --model.
 
 Output layout (what Transformers.js's env.localModelPath="/models/" expects):
     <output>/config.json
@@ -30,7 +38,12 @@ from pathlib import Path
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", required=True, help="HF Hub model id, e.g. knosing/japanese_ner_model")
+    parser.add_argument("--model", required=True, help="HF Hub model id, e.g. tsmatz/xlm-roberta-ner-japanese")
+    parser.add_argument(
+        "--tokenizer",
+        default=None,
+        help="HF Hub tokenizer id, if different from --model (check the model card). Defaults to --model.",
+    )
     parser.add_argument("--output", required=True, help="Output directory, e.g. public/models/ner-ja")
     args = parser.parse_args()
 
@@ -42,6 +55,7 @@ def main() -> None:
         tmp_path = Path(tmp)
         export_with_optimum(args.model, tmp_path)
         quantize(tmp_path / "model.onnx", output_dir / "onnx" / "model_quantized.onnx")
+        save_tokenizer(args.tokenizer or args.model, tmp_path)
         copy_tokenizer_and_config(tmp_path, output_dir)
 
     print(f"\nDone. Verify the label set matches src/lib/detectors/ner/labelMap.ts:")
@@ -75,6 +89,15 @@ def quantize(fp32_path: Path, quantized_path: Path) -> None:
     )
     print(f"fp32:      {fp32_path.stat().st_size / 1e6:.1f} MB")
     print(f"quantized: {quantized_path.stat().st_size / 1e6:.1f} MB")
+
+
+def save_tokenizer(tokenizer_id: str, tmp_path: Path) -> None:
+    # optimum-cli's own preprocessor-saving step swallows tokenizer load
+    # errors, so some fine-tuned checkpoints silently end up with no
+    # tokenizer files at all. Load and save it explicitly instead.
+    from transformers import AutoTokenizer
+
+    AutoTokenizer.from_pretrained(tokenizer_id).save_pretrained(tmp_path)
 
 
 def copy_tokenizer_and_config(tmp_path: Path, output_dir: Path) -> None:

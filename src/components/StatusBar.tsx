@@ -3,12 +3,18 @@ import type { OfflineStatus } from "../hooks/useOfflineStatus";
 
 interface StatusBarProps {
   nerStatus: NerModelStatus;
+  nerError: string | null;
   offline: OfflineStatus;
 }
 
-function describe(nerStatus: NerModelStatus, offline: OfflineStatus): { text: string; tone: "ok" | "warn" | "error" } {
+function describe(
+  nerStatus: NerModelStatus,
+  nerError: string | null,
+  offline: OfflineStatus,
+): { text: string; tone: "ok" | "warn" | "error" } {
   if (nerStatus === "error") {
-    return { text: "NERモデルの読み込みに失敗しました。再読み込みしてください。", tone: "error" };
+    const detail = nerError ? `（詳細: ${nerError}）` : "";
+    return { text: `NERモデルの読み込みに失敗しました${detail}。再読み込みしてください。`, tone: "error" };
   }
   if (nerStatus !== "ready") {
     return { text: "モデル準備中…（初回はダウンロードに時間がかかります）", tone: "warn" };
@@ -22,8 +28,8 @@ function describe(nerStatus: NerModelStatus, offline: OfflineStatus): { text: st
   return { text: "モデル未キャッシュ（オフライン再訪には初回のネットワーク接続が必要です）", tone: "warn" };
 }
 
-export function StatusBar({ nerStatus, offline }: StatusBarProps) {
-  const { text, tone } = describe(nerStatus, offline);
+export function StatusBar({ nerStatus, nerError, offline }: StatusBarProps) {
+  const { text, tone } = describe(nerStatus, nerError, offline);
   return (
     <div className={`status-bar status-bar--${tone}`} role="status">
       <span className="status-bar__dot" aria-hidden="true" />

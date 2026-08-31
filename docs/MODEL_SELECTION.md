@@ -4,23 +4,45 @@
 
 ### 選定モデル
 
-**候補**: 日本語専用の `tohoku-nlp/bert-base-japanese-v3` ファインチューン系NERモデル
-（例: `knosing/japanese_ner_model`。学習データは Stockmark 社の
-`ner-wikipedia-dataset`〈人名・法人名・政治的組織名・その他の組織名・地名・施設名・製品名・イベント名〉）。
+**採用**: `tsmatz/xlm-roberta-ner-japanese`（`xlm-roberta-base` のファインチューン。
+学習データは Stockmark 社の `ner-wikipedia-dataset` を英語タグ
+〈PER・ORG・ORG-P・ORG-O・LOC・INS・PRD・EVT〉に置き換えたもの）。
 
-### 選定理由（多言語モデルとの比較）
+**却下した候補とその理由（重要な制約事項）**: 当初は日本語専用の
+`tohoku-nlp/bert-base-japanese-v3` ファインチューン系（例: `knosing/japanese_ner_model`）を
+第一候補としていたが、実際に `scripts/convert_ner_model.py` で変換・検証した結果、
+**このトークナイザーは Transformers.js では原理的に動作しないことが判明した**:
 
-| | 日本語専用 BERT-base | 多言語 XLM-RoBERTa-base |
+- `tohoku-nlp/bert-base-japanese-v3` は MeCab（`fugashi`/`unidic-lite`）による
+  単語分割を前提とした `BertJapaneseTokenizer` を使用する。
+- このトークナイザークラスには HuggingFace が提供する "fast" (Rust/WASM) 実装が
+  存在せず、`tokenizer.json` を生成できない。
+- `@huggingface/transformers`（本プロジェクトが使用するブラウザ側ランタイム）は
+  `tokenizer.json` を前提としたトークナイザーしか読み込めず、MeCab相当の実装も
+  持たないため、このモデル系統はブラウザで一切動作しない。
+
+さらに `knosing/japanese_ner_model` 自体はHub上にトークナイザーファイルを
+一切同梱しておらず（モデルカードに `tohoku-nlp/bert-base-japanese-v3` を
+別途使うよう明記されているのみ）、変換スクリプトも当初この前提を欠いていたため
+二重に変換が壊れていた（`scripts/convert_ner_model.py` の `--tokenizer` 引数として
+修正済み）。
+
+### 選定理由（多言語モデルとの比較・サイズの妥協について）
+
+| | 日本語専用 BERT-base（不採用） | 採用: 多言語 XLM-RoBERTa-base |
 |---|---|---|
 | パラメータ数 | 約110M | 約270M |
-| 量子化後サイズ目安 | 数十MB（int8） | 100MB超（int8） |
+| 量子化後サイズ（実測） | ―（動作不可のため未計測） | **278.2 MB**（fp32: 1110.1 MB） |
 | 対応言語 | 日本語特化 | 100言語超（汎用） |
-| モバイル初回DL負荷 | 低 | 高 |
+| Transformers.js互換 | **不可**（fast tokenizer非対応） | 可（SentencePiece, `tokenizer.json`同梱） |
 
-本ツールはオフラインPWAとしてモバイル実機での利用を想定しており、初回ダウンロード時間と
-Cache Storage容量への配慮を最優先事項とした。日本語のみを対象とする本ツールの用途では、
-多言語モデルの汎用性は不要な一方でサイズのデメリットが直接効いてくるため、
-日本語専用の軽量モデルを採用する（ユーザーとの合意事項）。
+本ツールはオフラインPWAとしてモバイル実機での利用を想定しており、当初は初回ダウンロード
+時間とCache Storage容量への配慮から「数十MB」規模の日本語専用モデルを最優先としていたが、
+上記の理由でその方針は技術的に実現不可能と判明した。現時点で確認できている
+Transformers.js互換の日本語NERモデルは本モデルのみであり、278MBという量子化後サイズは
+当初目標を大きく超過するが、**動作するモデルを優先し採用する**（ユーザーとの合意事項）。
+より小さい代替（SentencePieceベースの日本語専用モデル等）が見つかった場合は
+差し替えを検討すること。
 
 ### 量子化
 
@@ -35,31 +57,44 @@ Transformers.js 側は `dtype: "q8"` を指定しており、これは規約上
 
 `src/lib/detectors/ner/labelMap.ts` が生モデルラベルを3カテゴリ（氏名/住所/組織名）へ変換する。
 Stockmark方式の日本語ラベル（人名・法人名・政治的組織名・その他の組織名・地名・施設名）と
-CoNLL方式の英語ラベル（PER/ORG/LOC等）の両方に対応しているが、
-**実際に選定したチェックポイントの `config.json` の `id2label` を必ず確認し、
-必要であれば `labelMap.ts` のマップを調整すること**
-（`convert_ner_model.py` 実行後にコンソールへ確認コマンドを出力する）。
+CoNLL方式の英語ラベル（PER/ORG/ORG-P/ORG-O/LOC/INS等）の両方に対応している。
+採用モデル `tsmatz/xlm-roberta-ner-japanese` の `id2label` は
+`{0: O, 1: PER, 2: ORG, 3: ORG-P, 4: ORG-O, 5: LOC, 6: INS, 7: PRD, 8: EVT}` で、
+PRD（製品名）・EVT（イベント名）はPIIカテゴリ対象外として無視、
+ORG/ORG-P/ORG-Oは組織名、LOC/INSは住所へマッピング済み（`CONLL_STYLE_MAP`）。
+**新しいチェックポイントに差し替える場合は `config.json` の `id2label` を必ず確認し、
+必要であれば `labelMap.ts`（および `scripts/eval_ner_model.py` 内のミラー）のマップを
+調整すること**（`convert_ner_model.py` 実行後にコンソールへ確認コマンドを出力する）。
 
-### 精度検証について（重要な制約事項）
+### 精度検証（実測済み）
 
 `scripts/eval_ner_model.py` に、日本語PII（人名・住所・組織名）を含む
 合成サンプル文15件の正解ラベル付きセットを同梱し、変換済みONNXモデルに対して
-完全一致スパンでの適合率/再現率/F1を算出できるようにした。
+完全一致スパンでの適合率/再現率/F1を算出する。
 
-**本セッションの開発サンドボックスは組織のegressポリシーにより `huggingface.co` への
-アクセスがブロックされており（プロキシの状態エンドポイントで確認済み、
-`connect_rejected: gateway answered 403 to CONNECT`）、実際のモデルダウンロード・
-ONNX変換・量子化・精度検証を本セッション内で実行することができなかった。**
-そのためこのドキュメントには実測の精度数値を記載していない
-（実測していない数値を記載しないことを優先した）。
-
-huggingface.co へアクセス可能な環境で以下を実行し、実測結果をこのファイルに追記すること:
+以下のコマンドで実測した結果（2026-08-31、`tsmatz/xlm-roberta-ner-japanese` を
+`onnxruntime.quantization.quantize_dynamic`（`QInt8`）で量子化したモデル）:
 
 ```bash
 pip install -r scripts/requirements.txt
-python scripts/convert_ner_model.py --model knosing/japanese_ner_model --output public/models/ner-ja
+python scripts/convert_ner_model.py --model tsmatz/xlm-roberta-ner-japanese --output public/models/ner-ja
 python scripts/eval_ner_model.py --model-dir public/models/ner-ja
 ```
+
+```
+=== 全体 (overall) ===
+precision=0.60 recall=0.71 f1=0.65 (n=17)
+
+=== カテゴリ別 (per category) ===
+PERSON         precision=0.86 recall=0.86 f1=0.86 (n=7)
+ADDRESS        precision=0.33 recall=0.50 f1=0.40 (n=6)
+ORGANIZATION   precision=0.75 recall=0.75 f1=0.75 (n=4)
+```
+
+このスコアはあくまで15文の合成サンプルによるスモークテストであり、統計的に有意な
+ベンチマークではない（`eval_ner_model.py` 冒頭のdocstring参照）。ADDRESS（住所）の
+F1が特に低く、量子化やラベルマッピングの回帰検知には使えるが、実運用の精度は
+より大規模な評価セットで別途検証すること。
 
 ## LLM補助層（Layer 3, 実験的機能）
 

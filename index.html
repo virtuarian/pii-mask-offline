@@ -3,9 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      'wasm-unsafe-eval' is required for onnxruntime-web (NER) and wllama
+      (LLM layer) to compile WebAssembly at all -- without it Chrome blocks
+      WebAssembly.instantiate() outright. It permits only WASM compilation,
+      not JS eval()/Function(), so it doesn't reopen the XSS surface
+      'unsafe-eval' would. worker-src/child-src need 'blob:' because wllama
+      spins up its worker from a blob: URL internally.
+    -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; child-src 'self'"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; child-src 'self' blob:"
     />
     <title>個人情報マスキングツール</title>
     <link rel="manifest" href="/manifest.webmanifest" />

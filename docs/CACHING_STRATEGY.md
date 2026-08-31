@@ -56,8 +56,20 @@ Layer 3（LLM補助層）のアセット（`@wllama/wllama` の wasm、GGUFモ�
 ## バージョニングと残留キャッシュの防止
 
 `install` イベントでプリキャッシュマニフェスト（`self.__WB_MANIFEST`、
-ビルド時に `vite-plugin-pwa` が実ファイル一覧へ置換）を2つのキャッシュへ振り分けて
-`cache.addAll` する。`activate` イベントで `caches.keys()` を列挙し、
+ビルド時に `vite-plugin-pwa` が実ファイル一覧へ置換）のうち、app-shell分のみを
+`cache.addAll` で即座にキャッシュする。**NERモデル（`models/`配下）は意図的に
+`install` 時の一括ダウンロード対象から外している**: NERパイプライン
+（`useNerModel` のマウント時処理）がページ読み込み直後に同じファイルへ
+自力でアクセスするため、`install` 側でも同時に`addAll`すると同一の
+巨大ファイル（量子化ONNXモデル約278MB）への同時ダウンロードが競合し、
+実際に`vite preview`環境で "Failed to fetch" という形で初回読み込みが
+不安定に失敗する事象を確認した。代わりに`fetch`ハンドラ側でモデル
+アセットのレスポンスをキャッシュに書き込むことで、NERパイプライン自身の
+1回のリクエストだけでモデルがキャッシュされ、二重ダウンロードを避けつつ
+初回訪問後は完全にオフラインキャッシュ済みの状態になる（詳細は
+`service-worker.ts` の `install`/`fetch` ハンドラのコメント参照）。
+
+`activate` イベントで `caches.keys()` を列挙し、
 `CURRENT_CACHE_NAMES`（現行の `app-shell-v{N}` / `model-assets-v{N}`）に
 含まれないキャッシュを**すべて削除**する。これにより、`APP_CACHE_VERSION` や
 `MODEL_CACHE_VERSION` を上げるたびに旧バージョンのキャッシュが確実に破棄され、
@@ -66,16 +78,20 @@ Layer 3（LLM補助層）のアセット（`@wllama/wllama` の wasm、GGUFモ�
 ## フェッチ戦略
 
 `fetch` イベントでは Cache First（キャッシュにあればそれを返し、無ければ
-ネットワークへフォールバック）。ネットワークにも到達できず、かつ
-ナビゲーションリクエスト（ページ遷移）である場合は、キャッシュ済みの
-`index.html` を返す（オフライン時もSPAとして起動できるようにするため）。
+ネットワークへフォールバック）。ネットワークから取得したレスポンスが
+モデルアセット（`models/`配下）の場合は、返す前に `model-assets` キャッシュへ
+書き込む（上記の通り、これが実質的なモデルの初回キャッシュ経路）。
+ネットワークにも到達できず、かつナビゲーションリクエスト（ページ遷移）で
+ある場合は、キャッシュ済みの `index.html` を返す（オフライン時もSPAとして
+起動できるようにするため）。
 
 ## オフライン動作の要件との対応
 
-- **初回起動のみネットワーク許可**: `install` 時に app-shell と NERモデルを
-  一括ダウンロード・キャッシュする。以降の起動では `fetch` ハンドラが
-  すべてのリクエストをキャッシュから解決するため、ネットワーク通信は発生しない
-  （Layer 3を有効化しない限り）。
+- **初回起動のみネットワーク許可**: `install` 時にapp-shellを、初回のNER利用時
+  （＝ページ読み込み直後、上記の理由で `install` とは別経路）にNERモデルを
+  それぞれキャッシュする。以降の起動では `fetch` ハンドラがすべてのリクエストを
+  キャッシュから解決するため、ネットワーク通信は発生しない（Layer 3を
+  有効化しない限り）。
 - **`env.allowRemoteModels = false` 相当の設定**: NERモデルは
   `public/models/ner-ja/` に同一オリジンの静的アセットとして同梱し、
   `src/lib/detectors/ner/pipeline.ts` で `env.allowRemoteModels = false` /
@@ -84,6 +100,14 @@ Layer 3（LLM補助層）のアセット（`@wllama/wllama` の wasm、GGUFモ�
 - **CSP `connect-src 'self'`**: `index.html` の `Content-Security-Policy`
   メタタグで `connect-src 'self'` を設定している。モデルが同一オリジンの
   静的アセットであるため、これは字義通り満たされる（グレーゾーンのCDN許可が不要）。
+- **CSP `script-src 'wasm-unsafe-eval'` / `worker-src 'blob:'`**: NER層
+  （onnxruntime-web）とLLM補助層（`@wllama/wllama`）のいずれもWebAssemblyを
+  実行時にコンパイルするため、`'wasm-unsafe-eval'` が無いと Chrome が
+  `WebAssembly.instantiate()` 自体をブロックする（`script-src 'self'` のみでは
+  実際に動作しないことを確認済み）。`wllama` は内部で `blob:` URLから
+  Workerを生成するため `worker-src`/`child-src` にも `blob:` が必要。
+  いずれも WASM実行またはWorker生成のみを許可する狭いスコープの緩和であり、
+  `'unsafe-eval'`（任意のJS `eval`/`Function` 実行）を許可するものではない。
 
 ## 既知の制限事項
 
@@ -91,9 +115,11 @@ Layer 3（LLM補助層）のアセット（`@wllama/wllama` の wasm、GGUFモ�
   Service Workerのキャッシュ容量上限やバックグラウンドでの
   Cache Storage自動退避（ストレージ逼迫時）はOS/ブラウザのバージョンに
   強く依存するため、実機での動作確認を別途行うこと（要件にも明記されている通り）。
-- 初回プリキャッシュ総量は、ONNX Runtime Web の wasm バイナリ単体で約11MB
+- 初回キャッシュ総量は、ONNX Runtime Web の wasm バイナリ単体で約11MB
   （wasm-only ビルドへの最適化後。上記「ONNX Runtime Web wasm のサイズ最適化」参照）、
-  NERモデル（量子化後、未生成の場合は `public/models/README.md` の手順で生成）を
-  加えると数十MB〜となる見込み。モバイル回線での初回体験について、
-  UI側で進捗表示（`StatusBar` の「モデル準備中…」表示）を行っているが、
-  より詳細なダウンロード進捗バーは今後の改善余地として残っている。
+  NERモデル（`tsmatz/xlm-roberta-ner-japanese` を量子化、実測278.2MB。
+  選定理由は `docs/MODEL_SELECTION.md` 参照）を加えると実測約300MBとなる。
+  当初目標としていた「数十MB」規模には収まっていない点に注意
+  （`docs/MODEL_SELECTION.md` の該当節に経緯を記載）。モバイル回線での
+  初回体験について、UI側で進捗表示（`StatusBar` の「モデル準備中…」表示）を
+  行っているが、より詳細なダウンロード進捗バーは今後の改善余地として残っている。

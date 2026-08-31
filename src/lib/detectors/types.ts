@@ -8,7 +8,7 @@ export type EntityCategory =
   | "ADDRESS"
   | "ORGANIZATION";
 
-export type DetectionSource = "rule" | "ner" | "llm";
+export type DetectionSource = "rule" | "ner" | "llm" | "manual";
 
 /** A half-open character range [start, end) into the original input text. */
 export interface Span {
@@ -33,6 +33,7 @@ export const CATEGORY_LABEL_JA: Record<EntityCategory, string> = {
 
 /** Priority used to resolve overlapping spans: higher wins. */
 export const SOURCE_PRIORITY: Record<DetectionSource, number> = {
+  manual: 4,
   rule: 3,
   ner: 2,
   llm: 1,
