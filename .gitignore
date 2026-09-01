@@ -4,9 +4,14 @@ dev-dist/
 .DS_Store
 *.log
 
-# Generated model binaries (see public/models/README.md to regenerate)
-public/models/*/
-!public/models/README.md
+# LLM model (Layer 3, optional/experimental) -- not committed, see public/models/README.md
+public/models/llm-ja/
+
+# NER ONNX weights (~265 MB): too large for a normal git push (GitHub's
+# 100 MB file limit). Fetched from a GitHub Release by
+# scripts/fetch-ner-model.mjs (see package.json's dev/build scripts and
+# public/models/README.md) instead of being committed.
+public/models/ner-ja/onnx/
 
 # Synced from node_modules/onnxruntime-web at dev/build time (see vite.config.ts)
 public/ort/

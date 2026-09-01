@@ -1,0 +1,2 @@
+public/models/ner-ja/*.json text eol=lf
+public/models/ner-ja/onnx/*.onnx binary
