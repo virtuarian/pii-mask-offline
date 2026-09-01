@@ -3,12 +3,14 @@ import { detectByRules } from "../lib/detectors/rules";
 import { resolveOverlaps } from "../lib/detectors/merge";
 import { getLlmResolver } from "../lib/detectors/llm";
 import type { Span } from "../lib/detectors/types";
-import type { NerDetection } from "../lib/detectors/ner/pipeline";
+import { DEFAULT_NER_THRESHOLDS, type NerDetection, type NerThresholds } from "../lib/detectors/ner/pipeline";
 import { useNerModel, type NerModelStatus } from "./useNerModel";
 
 export interface UsePiiMaskingOptions {
   /** Opt-in flag for the experimental Layer 3 (LLM) disambiguation. Default: off. */
   llmEnabled?: boolean;
+  /** NER confidence thresholds (see SettingsView). Default: pipeline.ts's built-in defaults. */
+  nerThresholds?: NerThresholds;
 }
 
 export interface UsePiiMasking {
@@ -31,7 +33,7 @@ export interface UsePiiMasking {
  * missed span -- can be applied and re-rendered without rerunning detection.
  */
 export function usePiiMasking(options: UsePiiMaskingOptions = {}): UsePiiMasking {
-  const { llmEnabled = false } = options;
+  const { llmEnabled = false, nerThresholds = DEFAULT_NER_THRESHOLDS } = options;
   const { status: nerStatus, error: nerError, detect } = useNerModel();
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -40,7 +42,8 @@ export function usePiiMasking(options: UsePiiMaskingOptions = {}): UsePiiMasking
       setIsProcessing(true);
       try {
         const ruleSpans = detectByRules(text);
-        const nerDetections: NerDetection[] = nerStatus === "ready" ? await detect(text) : [];
+        const nerDetections: NerDetection[] =
+          nerStatus === "ready" ? await detect(text, nerThresholds) : [];
 
         const ambiguous = nerDetections.filter((d) => d.ambiguous);
         let nerSpans: Span[] = nerDetections;
@@ -66,7 +69,7 @@ export function usePiiMasking(options: UsePiiMaskingOptions = {}): UsePiiMasking
         setIsProcessing(false);
       }
     },
-    [nerStatus, detect, llmEnabled],
+    [nerStatus, detect, llmEnabled, nerThresholds],
   );
 
   return { process, isProcessing, nerStatus, nerError };

@@ -448,6 +448,54 @@ button {
   line-height: 1.5;
 }
 
+.settings-view__section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+
+.settings-view__section-header h3 {
+  margin-bottom: 0;
+}
+
+.settings-view__reset {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+.settings-view__reset:hover {
+  text-decoration: underline;
+}
+
+.settings-view__hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0 0 0.9rem;
+}
+
+.settings-view__slider {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin-bottom: 0.9rem;
+}
+
+.settings-view__slider span strong {
+  color: var(--text);
+}
+
+.settings-view__slider input[type="range"] {
+  width: 100%;
+}
+
 .status-bar {
   display: flex;
   align-items: center;

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { aggregateEntities, assignCharOffsets, chunkText } from "../../src/lib/detectors/ner/pipeline";
+import {
+  aggregateEntities,
+  assignCharOffsets,
+  bridgeAdjacentEntities,
+  chunkText,
+  extendKatakanaRuns,
+} from "../../src/lib/detectors/ner/pipeline";
 
 describe("aggregateEntities", () => {
   it("merges consecutive B-/I- tokens of the same type into one span", () => {
@@ -114,5 +120,110 @@ describe("assignCharOffsets", () => {
     ];
     const groups = aggregateEntities(assignCharOffsets(text, tokens));
     expect(groups).toEqual([{ label: "PER", start: 0, end: 4, score: 0.95 }]);
+  });
+});
+
+describe("bridgeAdjacentEntities", () => {
+  // Reproduces a real observed failure: the model tagged "カナモ" and "サナ"
+  // as LOC but predicted "O" for the "リ" and "コ" in between/after, within
+  // the single katakana name "カナモリサナコ". Without bridging, aggregation
+  // alone leaves those two kana as unmasked plaintext in the final output --
+  // a PII leak, not just a mislabel.
+  it("merges two entities separated by a short run of plain kana into one span", () => {
+    const text = "カナモリサナコ";
+    // "カナモ"(0-3) LOC, gap "リ"(3-4), "サナ"(4-6) LOC, gap "コ"(6-7)
+    const entities = [
+      { label: "LOC", start: 0, end: 3, score: 0.6 },
+      { label: "LOC", start: 4, end: 6, score: 0.5 },
+    ];
+    const merged = bridgeAdjacentEntities(text, entities);
+    expect(merged).toEqual([{ label: "LOC", start: 0, end: 6, score: 0.5, bridged: true }]);
+  });
+
+  it("does not bridge across a tab (two distinct spreadsheet-style fields)", () => {
+    const text = "田中\t太郎";
+    const entities = [
+      { label: "PER", start: 0, end: 2, score: 0.9 },
+      { label: "PER", start: 3, end: 5, score: 0.9 },
+    ];
+    const merged = bridgeAdjacentEntities(text, entities);
+    expect(merged).toHaveLength(2);
+    expect(merged.every((e) => !e.bridged)).toBe(true);
+  });
+
+  it("does not bridge across a gap longer than the max bridge width", () => {
+    const text = "山田ABC太郎";
+    const entities = [
+      { label: "PER", start: 0, end: 2, score: 0.9 },
+      { label: "PER", start: 5, end: 7, score: 0.9 },
+    ];
+    const merged = bridgeAdjacentEntities(text, entities);
+    expect(merged).toHaveLength(2);
+  });
+
+  it("leaves already-contiguous or non-adjacent entities alone", () => {
+    const text = "山田太郎";
+    const entities = [{ label: "PER", start: 0, end: 4, score: 0.9 }];
+    expect(bridgeAdjacentEntities(text, entities)).toEqual([{ ...entities[0], bridged: false }]);
+  });
+
+  it("keeps the higher-confidence label when bridging spans with different labels", () => {
+    const text = "カナモリ";
+    const entities = [
+      { label: "LOC", start: 0, end: 2, score: 0.4 },
+      { label: "PER", start: 3, end: 4, score: 0.8 },
+    ];
+    const merged = bridgeAdjacentEntities(text, entities);
+    expect(merged).toEqual([{ label: "PER", start: 0, end: 4, score: 0.4, bridged: true }]);
+  });
+});
+
+describe("extendKatakanaRuns", () => {
+  // The other reproduction of the same real failure: after bridging closes
+  // the internal gap, the model's tagged span still stops one katakana
+  // character short of the actual word's end ("カナモリサナ", not
+  // "カナモリサナコ"), leaving a trailing "コ" unmasked.
+  it("extends a span's end into a trailing run of katakana", () => {
+    const text = "カナモリサナコ\t女";
+    const entities = [{ label: "LOC", start: 0, end: 6, score: 0.5, bridged: true }];
+    const extended = extendKatakanaRuns(text, entities);
+    expect(extended).toEqual([{ label: "LOC", start: 0, end: 7, score: 0.5, bridged: true }]);
+  });
+
+  it("extends a span's start into a leading run of katakana", () => {
+    const text = "カナモリ";
+    // Model only recognized "モリ" (2-4); "カナ" (0-2) is the same katakana
+    // word and should be pulled in too.
+    const entities = [{ label: "PER", start: 2, end: 4, score: 0.5, bridged: false }];
+    const extended = extendKatakanaRuns(text, entities);
+    expect(extended).toEqual([{ label: "PER", start: 0, end: 4, score: 0.5, bridged: true }]);
+  });
+
+  it("does not extend across a kanji boundary on either edge", () => {
+    const text = "田カナモリ様";
+    const entities = [{ label: "PER", start: 1, end: 5, score: 0.5, bridged: false }];
+    expect(extendKatakanaRuns(text, entities)).toEqual([{ ...entities[0] }]);
+  });
+
+  it("does not extend past a hiragana grammatical particle", () => {
+    const text = "タロウです";
+    const entities = [{ label: "PER", start: 0, end: 3, score: 0.9, bridged: false }];
+    expect(extendKatakanaRuns(text, entities)).toEqual([{ ...entities[0] }]);
+  });
+
+  it("does not extend into a neighboring entity's own span", () => {
+    const text = "カナモリサナコ";
+    const entities = [
+      { label: "LOC", start: 0, end: 3, score: 0.5, bridged: false },
+      { label: "PER", start: 3, end: 7, score: 0.9, bridged: false },
+    ];
+    const extended = extendKatakanaRuns(text, entities);
+    expect(extended).toEqual(entities);
+  });
+
+  it("leaves a span untouched when neither edge borders katakana", () => {
+    const text = "山田太郎です";
+    const entities = [{ label: "PER", start: 0, end: 4, score: 0.9, bridged: false }];
+    expect(extendKatakanaRuns(text, entities)).toEqual([{ ...entities[0] }]);
   });
 });

@@ -57,6 +57,16 @@ export const NER_CONFIDENT_THRESHOLD = 0.75;
 /** Below this score, a NER hit is discarded entirely (too likely to be noise). */
 export const NER_FLOOR_THRESHOLD = 0.35;
 
+export interface NerThresholds {
+  confidentThreshold: number;
+  floorThreshold: number;
+}
+
+export const DEFAULT_NER_THRESHOLDS: NerThresholds = {
+  confidentThreshold: NER_CONFIDENT_THRESHOLD,
+  floorThreshold: NER_FLOOR_THRESHOLD,
+};
+
 export interface NerDetection extends Span {
   /** True when confidence is between the floor and confident thresholds. */
   ambiguous: boolean;
@@ -132,6 +142,114 @@ export function aggregateEntities(
 }
 
 /**
+ * The XLM-R tokenizer's decoded-word offset recovery (see assignCharOffsets)
+ * has no way to fix a genuine per-character label flip-flop in the model's
+ * own predictions -- e.g. a katakana name like "カナモリサナコ" where the
+ * model tags "カナモ"+"サナ" as an entity but predicts "O" for the "リ" and
+ * "コ" in between (surname/place-name ambiguity in the underlying
+ * checkpoint). Left alone, aggregateEntities treats those as two separate
+ * spans and the untagged middle characters are rendered as plain, unmasked
+ * text in the output -- a real PII leak, not just a labeling quirk.
+ *
+ * This bridges that gap defensively: two entities separated by a short run
+ * of non-whitespace, non-punctuation characters (almost certainly mid-word,
+ * never a genuine boundary between two unrelated fields/sentences) are
+ * merged into one span covering the whole run, so no fragment of a
+ * partially-recognized entity is ever left unmasked. The merged span is
+ * always flagged ambiguous regardless of score, since the bridge itself is
+ * evidence the model's read on this text was inconsistent.
+ */
+const NER_BRIDGE_MAX_GAP = 2;
+
+function isBridgeableGap(gapText: string): boolean {
+  if (gapText.length === 0 || gapText.length > NER_BRIDGE_MAX_GAP) return false;
+  // \s covers ASCII space/tab/newline; 　 is the full-width (Japanese)
+  // space. Common separators/punctuation also block a bridge so this never
+  // stitches together two genuinely distinct fields (e.g. tab-separated
+  // spreadsheet columns) or two clauses either side of a comma/period.
+  return !/[\s　,、。.!！?？:：;；「」『』()（）\-\/\\|]/.test(gapText);
+}
+
+export interface AggregatedEntity {
+  label: string;
+  start: number;
+  end: number;
+  score: number;
+}
+
+export function bridgeAdjacentEntities(
+  text: string,
+  entities: AggregatedEntity[],
+): Array<AggregatedEntity & { bridged: boolean }> {
+  const sorted = [...entities].sort((a, b) => a.start - b.start);
+  const merged: Array<AggregatedEntity & { bridged: boolean }> = [];
+
+  for (const entity of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && entity.start > last.end && isBridgeableGap(text.slice(last.end, entity.start))) {
+      last.label = entity.score > last.score ? entity.label : last.label;
+      last.end = entity.end;
+      last.score = Math.min(last.score, entity.score);
+      last.bridged = true;
+      continue;
+    }
+    merged.push({ ...entity, bridged: false });
+  }
+
+  return merged;
+}
+
+/**
+ * bridgeAdjacentEntities only closes a gap *between* two recognized
+ * entities; it can't help when the untagged remainder trails off the edge
+ * of the text (or the edge of the next/previous entity) with nothing
+ * recognized on the other side to bridge to -- e.g. "カナモリサナコ" tagged
+ * as an entity only up through "...サナ", leaving the trailing "コ" as an
+ * unmasked dangling character. This extends an entity's start/end into any
+ * immediately-touching run of katakana, since a name/entity boundary that
+ * itself falls mid-katakana is strong evidence the true word continues:
+ * katakana never trails into a hiragana grammatical particle (です/でした/
+ * さん, ...) the way kanji or rōmaji might, so this can't over-reach into
+ * ordinary sentence continuation the way a same-script rule for kanji or
+ * hiragana would. Extension is clamped to the neighboring entity's boundary
+ * so it can never swallow a separately-recognized entity next to it.
+ */
+function isKatakana(ch: string | undefined): boolean {
+  // U+30A0-U+30FF: the full katakana block, including the prolonged sound
+  // mark "ー".
+  return ch !== undefined && /^[゠-ヿ]$/.test(ch);
+}
+
+export function extendKatakanaRuns(
+  text: string,
+  entities: Array<AggregatedEntity & { bridged: boolean }>,
+): Array<AggregatedEntity & { bridged: boolean }> {
+  const sorted = [...entities].sort((a, b) => a.start - b.start);
+
+  return sorted.map((entity, i) => {
+    const prevEnd = sorted[i - 1]?.end ?? 0;
+    const nextStart = sorted[i + 1]?.start ?? text.length;
+    let { start, end } = entity;
+    let extended = false;
+
+    if (start < end && isKatakana(text[start])) {
+      while (start > prevEnd && isKatakana(text[start - 1])) {
+        start--;
+        extended = true;
+      }
+    }
+    if (start < end && isKatakana(text[end - 1])) {
+      while (end < nextStart && isKatakana(text[end])) {
+        end++;
+        extended = true;
+      }
+    }
+
+    return extended ? { ...entity, start, end, bridged: true } : entity;
+  });
+}
+
+/**
  * The tokenizer truncates to the model's 512-token limit (see
  * `model_max_length` in public/models/ner-ja/tokenizer_config.json) with no
  * warning, so anything past that point is silently never scanned by NER on
@@ -192,7 +310,10 @@ export function chunkText(text: string, maxChars: number): Array<{ text: string;
   return chunks;
 }
 
-export async function detectByNer(text: string): Promise<NerDetection[]> {
+export async function detectByNer(
+  text: string,
+  thresholds: NerThresholds = DEFAULT_NER_THRESHOLDS,
+): Promise<NerDetection[]> {
   if (text.trim() === "") return [];
   const classify = await loadPipeline();
 
@@ -214,13 +335,13 @@ export async function detectByNer(text: string): Promise<NerDetection[]> {
     }
   }
 
-  const entities = aggregateEntities(tokens);
+  const entities = extendKatakanaRuns(text, bridgeAdjacentEntities(text, aggregateEntities(tokens)));
 
   const detections: NerDetection[] = [];
   for (const entity of entities) {
     const category = mapNerLabel(entity.label);
     if (!category) continue;
-    if (entity.score < NER_FLOOR_THRESHOLD) continue;
+    if (entity.score < thresholds.floorThreshold) continue;
 
     detections.push({
       start: entity.start,
@@ -228,7 +349,7 @@ export async function detectByNer(text: string): Promise<NerDetection[]> {
       category,
       source: "ner",
       confidence: entity.score,
-      ambiguous: entity.score < NER_CONFIDENT_THRESHOLD,
+      ambiguous: entity.bridged || entity.score < thresholds.confidentThreshold,
       text: text.slice(entity.start, entity.end),
     });
   }

@@ -1,6 +1,14 @@
-import { detectByNer, preloadNerModel, type NerDetection } from "../lib/detectors/ner/pipeline";
+import {
+  detectByNer,
+  preloadNerModel,
+  DEFAULT_NER_THRESHOLDS,
+  type NerDetection,
+  type NerThresholds,
+} from "../lib/detectors/ner/pipeline";
 
-export type NerWorkerRequest = { type: "preload" } | { type: "detect"; id: number; text: string };
+export type NerWorkerRequest =
+  | { type: "preload" }
+  | { type: "detect"; id: number; text: string; thresholds?: NerThresholds };
 
 export type NerWorkerResponse =
   | { type: "ready" }
@@ -16,7 +24,7 @@ self.onmessage = async (event: MessageEvent<NerWorkerRequest>) => {
       return;
     }
     if (message.type === "detect") {
-      const detections = await detectByNer(message.text);
+      const detections = await detectByNer(message.text, message.thresholds ?? DEFAULT_NER_THRESHOLDS);
       postMessage({ type: "result", id: message.id, detections } satisfies NerWorkerResponse);
     }
   } catch (err) {

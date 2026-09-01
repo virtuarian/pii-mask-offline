@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { NerDetection } from "../lib/detectors/ner/pipeline";
+import type { NerDetection, NerThresholds } from "../lib/detectors/ner/pipeline";
 import type { NerWorkerResponse } from "../workers/ner.worker";
 
 export type NerModelStatus = "idle" | "loading" | "ready" | "error";
@@ -12,7 +12,7 @@ interface PendingRequest {
 export interface UseNerModel {
   status: NerModelStatus;
   error: string | null;
-  detect: (text: string) => Promise<NerDetection[]>;
+  detect: (text: string, thresholds?: NerThresholds) => Promise<NerDetection[]>;
 }
 
 /** Owns the NER Web Worker's lifecycle and exposes a request/response API over it. */
@@ -56,7 +56,7 @@ export function useNerModel(): UseNerModel {
     };
   }, []);
 
-  const detect = (text: string): Promise<NerDetection[]> =>
+  const detect = (text: string, thresholds?: NerThresholds): Promise<NerDetection[]> =>
     new Promise((resolve, reject) => {
       const worker = workerRef.current;
       if (!worker) {
@@ -65,7 +65,7 @@ export function useNerModel(): UseNerModel {
       }
       const id = nextIdRef.current++;
       pendingRef.current.set(id, { resolve, reject });
-      worker.postMessage({ type: "detect", id, text });
+      worker.postMessage({ type: "detect", id, text, thresholds });
     });
 
   return { status, error, detect };

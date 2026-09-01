@@ -11,6 +11,7 @@ import { usePiiMasking } from "../hooks/usePiiMasking";
 import { useOfflineStatus } from "../hooks/useOfflineStatus";
 import { filterVisibleSpans, maskText } from "../lib/mask";
 import { resolveOverlaps } from "../lib/detectors/merge";
+import { DEFAULT_NER_THRESHOLDS, type NerThresholds } from "../lib/detectors/ner/pipeline";
 import { CATEGORY_LABEL_JA, type EntityCategory, type Span } from "../lib/detectors/types";
 
 const ALL_CATEGORIES = new Set(Object.keys(CATEGORY_LABEL_JA) as EntityCategory[]);
@@ -36,7 +37,8 @@ export function ChatLayout() {
   const [llmEnabled, setLlmEnabled] = useState(false);
   const [mappingEnabled, setMappingEnabled] = useState(false);
   const [enabledCategories, setEnabledCategories] = useState<Set<EntityCategory>>(ALL_CATEGORIES);
-  const { process, isProcessing, nerStatus, nerError } = usePiiMasking({ llmEnabled });
+  const [nerThresholds, setNerThresholds] = useState<NerThresholds>(DEFAULT_NER_THRESHOLDS);
+  const { process, isProcessing, nerStatus, nerError } = usePiiMasking({ llmEnabled, nerThresholds });
   const offline = useOfflineStatus();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [nextId, setNextId] = useState(0);
@@ -199,6 +201,8 @@ export function ChatLayout() {
               onLlmEnabledChange={setLlmEnabled}
               mappingEnabled={mappingEnabled}
               onMappingEnabledChange={setMappingEnabled}
+              nerThresholds={nerThresholds}
+              onNerThresholdsChange={setNerThresholds}
             />
           </div>
         )}
