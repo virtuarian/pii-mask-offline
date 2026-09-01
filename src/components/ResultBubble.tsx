@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CATEGORY_COLORS } from "../lib/categoryColors";
 import { CATEGORY_LABEL_JA, type EntityCategory, type Span } from "../lib/detectors/types";
 import { filterVisibleSpans, maskText, type MappingEntry } from "../lib/mask";
+import { CheckIcon, UndoIcon } from "./icons";
 
 interface ResultBubbleProps {
   text: string;
@@ -56,6 +57,25 @@ export function ResultBubble({
   onSpansChange,
 }: ResultBubbleProps) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const textRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (editingIndex === null) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      if (textRef.current && !textRef.current.contains(e.target as Node)) {
+        setEditingIndex(null);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setEditingIndex(null);
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [editingIndex]);
 
   // Category filtering happens here, not on `spans` itself: `spans` stays
   // the full detected set so toggling the filter later can reveal a
@@ -90,7 +110,7 @@ export function ResultBubble({
 
   return (
     <div className="bubble bubble--result">
-      <p className="bubble__text">
+      <div className="bubble__text" ref={textRef}>
         {segments.map((segment, i) =>
           segment.masked && segment.category && segment.spanIndex !== undefined ? (
             <span key={i} className="pii-badge-wrap">
@@ -102,6 +122,7 @@ export function ResultBubble({
                   color: CATEGORY_COLORS[segment.category].fg,
                 }}
                 title={`検出元: ${SOURCE_LABEL_JA[segment.source!]}（クリックで修正）`}
+                aria-expanded={editingIndex === segment.spanIndex}
                 onClick={() =>
                   setEditingIndex(editingIndex === segment.spanIndex ? null : segment.spanIndex!)
                 }
@@ -109,30 +130,49 @@ export function ResultBubble({
                 {segment.text}
               </button>
               {editingIndex === segment.spanIndex && (
-                <span className="pii-edit-menu">
-                  <select
-                    value={segment.category}
-                    onChange={(e) =>
-                      recategorizeSpan(segment.spanIndex!, e.target.value as EntityCategory)
-                    }
+                <div className="pii-edit-menu" role="menu">
+                  <div className="pii-edit-menu__header">カテゴリを変更</div>
+                  <ul className="pii-edit-menu__list">
+                    {CATEGORIES.map((c) => {
+                      const active = c === segment.category;
+                      return (
+                        <li key={c}>
+                          <button
+                            type="button"
+                            className={`pii-edit-menu__item${active ? " pii-edit-menu__item--active" : ""}`}
+                            role="menuitemradio"
+                            aria-checked={active}
+                            onClick={() => recategorizeSpan(segment.spanIndex!, c)}
+                          >
+                            <span
+                              className="pii-edit-menu__dot"
+                              style={{ background: CATEGORY_COLORS[c].fg }}
+                              aria-hidden="true"
+                            />
+                            <span className="pii-edit-menu__label">{CATEGORY_LABEL_JA[c]}</span>
+                            {active && <CheckIcon className="pii-edit-menu__check" />}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <div className="pii-edit-menu__divider" />
+                  <button
+                    type="button"
+                    className="pii-edit-menu__item pii-edit-menu__item--revert"
+                    onClick={() => revertSpan(segment.spanIndex!)}
                   >
-                    {CATEGORIES.map((c) => (
-                      <option key={c} value={c}>
-                        {CATEGORY_LABEL_JA[c]}
-                      </option>
-                    ))}
-                  </select>
-                  <button type="button" onClick={() => revertSpan(segment.spanIndex!)}>
-                    元に戻す
+                    <UndoIcon className="pii-edit-menu__revert-icon" />
+                    <span className="pii-edit-menu__label">検出前に戻す</span>
                   </button>
-                </span>
+                </div>
               )}
             </span>
           ) : (
             <span key={i}>{segment.text}</span>
           ),
         )}
-      </p>
+      </div>
       {detectedCategories.length > 0 && (
         <div className="bubble__summary">
           検出: {detectedCategories.map((c) => CATEGORY_LABEL_JA[c]).join(" / ")}

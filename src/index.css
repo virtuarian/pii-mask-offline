@@ -12,6 +12,25 @@
   --ok: #16a34a;
   --warn: #d97706;
   font-family: "Hiragino Sans", "Yu Gothic", "Noto Sans JP", system-ui, sans-serif;
+
+  /* shadcn/ui tokens (see .claude/design.md) -- used by the recategorize/
+     manual-add popovers. Typography is intentionally not adopted: Geist/
+     Inter are Latin-only and this app's UI text is entirely Japanese, so
+     the existing CJK font stack above stays in charge everywhere. Light
+     theme only, per design.md; these popovers render as light cards even
+     in dark mode, same as most floating panels. */
+  --sc-canvas: #f5f5f5;
+  --sc-paper: #ffffff;
+  --sc-surface-alt: #fafafa;
+  --sc-ink: #0a0a0a;
+  --sc-ink-soft: #171717;
+  --sc-mid-gray: #737373;
+  --sc-hairline: #e5e5e5;
+  --sc-ember: #e7000b;
+  --sc-radius-buttons: 18px;
+  --sc-radius-cards: 24px;
+  --sc-shadow-card: 0 0 0 1px rgba(23, 23, 23, 0.05), 0 1px 3px rgba(0, 0, 0, 0.1),
+    0 1px 2px -1px rgba(0, 0, 0, 0.1);
 }
 
 * {
@@ -271,6 +290,7 @@ button {
 }
 
 .bubble {
+  position: relative;
   border-radius: 1rem;
   padding: 0.7rem 1rem;
   max-width: 34rem;
@@ -368,6 +388,12 @@ button {
   border: none;
   font-family: inherit;
   cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.pii-badge:hover,
+.pii-badge[aria-expanded="true"] {
+  filter: brightness(0.94);
 }
 
 .pii-badge-wrap {
@@ -375,50 +401,225 @@ button {
   display: inline-block;
 }
 
-.pii-edit-menu {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  margin-left: 0.3rem;
-  padding: 0.15rem 0.4rem;
-  border-radius: 0.35rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  font-size: 0.75rem;
-  vertical-align: middle;
+/* ---------- Recategorize / manual-add popovers ----------
+   Styled per .claude/design.md (shadcn/ui tokens): paper cards on a
+   hairline border, 24px card radius / 18px pill radius on rows, ember red
+   reserved for the one destructive action. Category color dots are kept
+   despite the spec's "achromatic" rule -- they're the same functional
+   color code used on every pii-badge throughout the app, not decoration,
+   so dropping them here would make categories harder to tell apart. */
+
+.pii-edit-menu,
+.manual-add-toolbar,
+.selection-trigger {
+  position: absolute;
+  z-index: 20;
 }
 
-.pii-edit-menu select {
-  font: inherit;
-  font-size: 0.75rem;
-}
-
-.pii-edit-menu button {
-  font: inherit;
-  font-size: 0.75rem;
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 0.3rem;
-  padding: 0.1rem 0.4rem;
-  cursor: pointer;
-  color: var(--text);
-}
-
+.pii-edit-menu,
 .manual-add-toolbar {
+  top: calc(100% + 0.4rem);
+  left: 0;
+  width: 15rem;
+  max-width: calc(100vw - 2rem);
+  background: var(--sc-paper);
+  border: 1px solid var(--sc-hairline);
+  border-radius: var(--sc-radius-cards);
+  box-shadow: var(--sc-shadow-card);
+  padding: 0.6rem;
+  font-size: 0.85rem;
+  color: var(--sc-ink);
+  white-space: normal;
+}
+
+.pii-edit-menu__header,
+.manual-add-toolbar__header {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem;
-  margin-top: 0.6rem;
-  padding: 0.5rem;
-  border-radius: 0.5rem;
-  background: rgba(255, 255, 255, 0.15);
+  padding: 0.3rem 0.5rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--sc-mid-gray);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.manual-add-toolbar__header {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.78rem;
+}
+
+.manual-add-toolbar__header-icon {
+  display: inline-flex;
+  color: var(--sc-ink);
+  flex-shrink: 0;
+}
+
+.manual-add-toolbar__header-icon svg {
+  width: 0.9rem;
+  height: 0.9rem;
 }
 
 .manual-add-toolbar__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--sc-ink);
+  font-weight: 600;
+}
+
+.manual-add-toolbar__close {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--sc-mid-gray);
+  cursor: pointer;
+}
+
+.manual-add-toolbar__close:hover {
+  background: var(--sc-canvas);
+  color: var(--sc-ink);
+}
+
+.manual-add-toolbar__close svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.pii-edit-menu__list,
+.manual-add-toolbar__grid {
+  list-style: none;
+  margin: 0.15rem 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.manual-add-toolbar__grid {
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.pii-edit-menu__item,
+.manual-add-toolbar__item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: var(--sc-radius-buttons);
+  background: transparent;
+  color: var(--sc-ink);
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pii-edit-menu__item:hover,
+.pii-edit-menu__item:focus-visible,
+.manual-add-toolbar__item:hover,
+.manual-add-toolbar__item:focus-visible {
+  background: var(--sc-canvas);
+  outline: none;
+}
+
+.pii-edit-menu__item--active {
+  background: var(--sc-canvas);
+  font-weight: 600;
+}
+
+.pii-edit-menu__item--revert {
+  color: var(--sc-ember);
+  margin-top: 0.15rem;
+}
+
+.pii-edit-menu__item--revert:hover {
+  background: color-mix(in srgb, var(--sc-ember) 8%, transparent);
+}
+
+.pii-edit-menu__revert-icon {
+  width: 0.95rem;
+  height: 0.95rem;
+  flex-shrink: 0;
+}
+
+.pii-edit-menu__dot,
+.manual-add-toolbar__dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pii-edit-menu__label {
+  flex: 1;
+}
+
+.pii-edit-menu__check {
+  flex-shrink: 0;
+  width: 0.9rem;
+  height: 0.9rem;
+  color: var(--sc-ink);
+}
+
+.pii-edit-menu__divider,
+.manual-add-toolbar__divider {
+  height: 1px;
+  background: var(--sc-hairline);
+  margin: 0.5rem 0.2rem;
+}
+
+/* Small non-reflowing trigger that appears at the end of a text selection,
+   instead of the full add-category card popping open immediately -- the
+   full card used to render inline (pushing layout below the selected
+   text), which visibly shifted the paragraph out from under the cursor
+   while the user was still mid-drag adjusting their selection. A tiny
+   fixed-size pill anchored via getBoundingClientRect (see InputBubble)
+   never changes document flow, so it can't interrupt selecting. */
+.selection-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.7rem;
+  background: var(--sc-ink);
+  color: var(--sc-paper);
+  border: none;
+  border-radius: var(--sc-radius-buttons);
+  font: inherit;
   font-size: 0.78rem;
-  color: white;
-  margin-right: 0.2rem;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--sc-shadow-card);
+  transform: translate(-50%, -100%);
+  white-space: nowrap;
+}
+
+.selection-trigger:hover {
+  background: var(--sc-ink-soft);
+}
+
+.selection-trigger svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.pii-edit-menu__divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0.4rem 0.2rem;
 }
 
 /* ---------- Settings view ---------- */
