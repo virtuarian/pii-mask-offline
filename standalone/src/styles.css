@@ -1,0 +1,255 @@
+:root {
+  --color-canvas: #f5f5f5;
+  --color-paper: #ffffff;
+  --color-ink: #0a0a0a;
+  --color-ink-soft: #171717;
+  --color-mid-gray: #737373;
+  --color-hairline: #e5e5e5;
+  --color-ember: #e7000b;
+  --font-sans:
+    "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN",
+    "Noto Sans JP", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px 20px 64px;
+}
+
+.app-header h1 {
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.75px;
+  margin: 0 0 4px;
+}
+
+.app-subtitle {
+  margin: 0 0 16px;
+  color: var(--color-mid-gray);
+  font-size: 14px;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 18px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 16px;
+}
+.status-badge.status-loading {
+  background: #f5f5f5;
+  color: var(--color-ink-soft);
+  border: 1px solid var(--color-hairline);
+}
+.status-badge.status-ready {
+  background: var(--color-ink-soft);
+  color: #fafafa;
+}
+.status-badge.status-error {
+  background: #fafafa;
+  color: var(--color-ember);
+  border: 1px solid var(--color-ember);
+}
+
+.app-note {
+  color: var(--color-mid-gray);
+  font-size: 13px;
+  background: var(--color-paper);
+  border: 1px solid var(--color-hairline);
+  border-radius: 14px;
+  padding: 12px 16px;
+  margin: 0 0 20px;
+}
+
+.error-banner {
+  background: #fff5f5;
+  border: 1px solid var(--color-ember);
+  color: var(--color-ember);
+  border-radius: 14px;
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.panel-label,
+.panel-label-row .panel-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-mid-gray);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 8px;
+}
+
+.category-toggles-wrap {
+  margin-bottom: 20px;
+}
+
+.category-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.category-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 18px;
+  border: 1px solid var(--color-hairline);
+  background: var(--color-paper);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+.category-chip input {
+  margin: 0;
+}
+
+.panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+@media (max-width: 800px) {
+  .panels {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel {
+  background: var(--color-paper);
+  border: 1px solid var(--color-hairline);
+  border-radius: 24px;
+  padding: 20px;
+  box-shadow:
+    0 0 0 1px rgba(23, 23, 23, 0.05),
+    0 1px 3px rgba(0, 0, 0, 0.1),
+    0 1px 2px -1px rgba(0, 0, 0, 0.1);
+}
+
+.panel-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.panel-label-row .panel-label {
+  margin-bottom: 0;
+}
+
+#input,
+textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--color-hairline);
+  background: var(--color-canvas);
+  border-radius: 18px;
+  padding: 10px 12px;
+  font: inherit;
+  color: var(--color-ink);
+}
+textarea:focus {
+  outline: none;
+  border-color: var(--color-mid-gray);
+}
+
+.panel-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn {
+  font: inherit;
+  font-weight: 500;
+  border-radius: 18px;
+  padding: 8px 16px;
+  border: none;
+  cursor: pointer;
+}
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.btn-primary {
+  background: var(--color-ink);
+  color: #fafafa;
+}
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--color-hairline);
+  color: var(--color-ink);
+}
+
+.result-view {
+  min-height: 260px;
+  max-height: 420px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid var(--color-hairline);
+  background: var(--color-canvas);
+  border-radius: 18px;
+  padding: 10px 12px;
+}
+
+.result-placeholder {
+  color: var(--color-mid-gray);
+  margin: 0;
+}
+
+.mask-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--color-ink-soft);
+  color: #fafafa;
+}
+
+/* One muted hue per category -- decorative differentiation only, not a
+   semantic color code, so no accessibility meaning rides on hue alone
+   (the label text inside each badge already names the category). */
+.mask-badge.cat-EMAIL {
+  background: #1d4ed8;
+}
+.mask-badge.cat-PHONE {
+  background: #0f766e;
+}
+.mask-badge.cat-CREDIT_CARD {
+  background: var(--color-ember);
+}
+.mask-badge.cat-MY_NUMBER {
+  background: #b45309;
+}
+.mask-badge.cat-POSTAL_CODE {
+  background: #7c3aed;
+}
+.mask-badge.cat-PERSON {
+  background: #0369a1;
+}
+.mask-badge.cat-ADDRESS {
+  background: #4d7c0f;
+}
+.mask-badge.cat-ORGANIZATION {
+  background: #52525b;
+}

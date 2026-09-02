@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      This file is entirely self-contained: UI, detection logic, and the
+      onnxruntime-web wasm runtime are all inlined below (see build.mjs), so
+      script-src/style-src need 'unsafe-inline'. 'wasm-unsafe-eval' is
+      required for onnxruntime-web to compile WebAssembly at all -- without
+      it Chrome blocks WebAssembly.instantiate() outright; it permits only
+      WASM compilation, not JS eval()/Function(). script-src/worker-src/
+      connect-src all need 'blob:' because the NER worker and its embedded
+      wasm runtime are loaded from blob: URLs built at runtime (see
+      standalone/src/app.ts and worker.ts) rather than separate file
+      requests -- onnxruntime-web's own wasm loader in particular pulls its
+      .mjs glue code in via a dynamic import(), which is governed by
+      script-src, not connect-src (confirmed by testing: omitting 'blob:'
+      from script-src silently blocks that import and NER never becomes
+      ready). connect-src also allows the Hugging Face Hub: the only network
+      access this page ever makes is fetching the ~280MB NER model on first
+      use (see the on-page notice); after that first fetch the browser's own
+      HTTP cache makes every later run fully offline.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' blob: data: https://huggingface.co https://*.huggingface.co https://*.hf.co; worker-src 'self' blob:; child-src 'self' blob:"
+    />
+    <title>個人情報マスキングツール(スタンドアロン版)</title>
+    <style>
+/*__CSS__*/
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+/*__JS__*/
+    </script>
+  </body>
+</html>
