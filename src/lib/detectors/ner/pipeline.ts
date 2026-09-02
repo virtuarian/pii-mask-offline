@@ -25,6 +25,19 @@ export interface NerPipelineConfig {
    * network at all -- only the (necessarily much larger) NER model is.
    */
   wasmPaths?: string | { wasm?: string; mjs?: string };
+  /**
+   * A Web Cache API-shaped `{ match, put }` object (see
+   * env.customCache in @huggingface/transformers) to use instead of the
+   * browser's Cache Storage. Cache Storage's `Cache.put()` rejects `file:`
+   * request URLs outright ("Request scheme 'file' is unsupported" --
+   * confirmed by testing), so a standalone build meant to be opened directly
+   * as a local file (no server) must supply its own cache -- see
+   * standalone/src/indexedDbCache.ts, which is IndexedDB-backed and works
+   * under file:. Only meaningful when allowRemoteModels is true; ignored
+   * otherwise (env.useBrowserCache is only ever set for the remote-model
+   * case -- see below).
+   */
+  customCache?: { match: (key: string) => Promise<Response | undefined>; put: (key: string, response: Response) => Promise<void> };
 }
 
 let pipelineConfig: NerPipelineConfig = {};
@@ -65,8 +78,16 @@ function applyEnvConfig(): void {
   // usable offline. This app's own SW cache is the deliberate, versioned
   // source of truth for the PWA (see docs/CACHING_STRATEGY.md). A
   // remote-model caller has no SW of its own, so it relies on this cache
-  // instead for the "fetch once, then fully offline" property.
-  env.useBrowserCache = allowRemote;
+  // instead for the "fetch once, then fully offline" property -- unless it
+  // supplies its own customCache (see NerPipelineConfig.customCache above),
+  // in which case that takes over instead (mutually exclusive with
+  // useBrowserCache in transformers.js's own cache-selection order).
+  if (pipelineConfig.customCache) {
+    env.useCustomCache = true;
+    env.customCache = pipelineConfig.customCache;
+  } else {
+    env.useBrowserCache = allowRemote;
+  }
   // The PWA aliases "onnxruntime-web" to its wasm-only (non-WebGPU/jsep)
   // entry in vite.config.ts to roughly halve the mandatory first-load
   // download. That entry resolves its wasm binary's URL dynamically, which

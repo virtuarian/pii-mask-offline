@@ -6,14 +6,18 @@ import {
   type NerDetection,
   type NerThresholds,
 } from "../../src/lib/detectors/ner/pipeline";
+import { createIndexedDbCache } from "./indexedDbCache";
 
 // The standalone build ships no same-origin model/wasm assets of its own
 // (see build.mjs): the NER model is pulled straight from the Hugging Face
-// Hub on first use (then cached by the browser -- see pipeline.ts's
-// env.useBrowserCache -- so every later run is fully offline). The
-// onnxruntime-web wasm runtime itself is NOT fetched over the network at
-// all: build.mjs embeds it directly into this worker's bundled source as
-// blob: URLs, set up in installBundledWasmRuntime() below.
+// Hub on first use, then cached in IndexedDB (see indexedDbCache.ts) so
+// every later run is fully offline -- IndexedDB is used instead of the
+// browser's own Cache Storage (transformers.js's default) because
+// Cache.put() rejects file: request URLs, and this build is meant to be
+// opened directly as a local file with no server. The onnxruntime-web wasm
+// runtime itself is NOT fetched over the network at all: build.mjs embeds
+// it directly into this worker's bundled source as blob: URLs, set up in
+// installBundledWasmRuntime() below.
 declare const __ORT_WASM_BASE64__: string;
 declare const __ORT_MJS_SOURCE__: string;
 
@@ -31,6 +35,7 @@ function installBundledWasmRuntime(): void {
     modelId: "tsmatz/xlm-roberta-ner-japanese",
     allowRemoteModels: true,
     wasmPaths: { wasm: wasmUrl, mjs: mjsUrl },
+    customCache: createIndexedDbCache(),
   });
 }
 installBundledWasmRuntime();
