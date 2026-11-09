@@ -1,5 +1,12 @@
 import { Wllama } from "@wllama/wllama";
-import wllamaWasmUrl from "@wllama/wllama/esm/wasm/wllama.wasm?url";
+// `&inline` base64-embeds the wasm binary into this already-lazy-loaded
+// chunk (see index.ts's dynamic import of this module) instead of emitting
+// it as a separate file. wllama's own worker is already blob:-URL-based
+// internally, so this is the only asset standing between this layer and
+// working from a single distributable HTML file (see docs on the
+// single-file build) -- and it costs nothing extra for the normal build
+// either, since the chunk is only ever fetched once the LLM layer is used.
+import wllamaWasmUrl from "@wllama/wllama/esm/wasm/wllama.wasm?url&inline";
 import type { EntityCategory } from "../types";
 import type { LlmJudgement, LlmResolver } from "./resolver";
 

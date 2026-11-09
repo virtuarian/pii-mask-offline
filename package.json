@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node scripts/fetch-ner-model.mjs && vite",
     "build": "node scripts/fetch-ner-model.mjs && tsc --noEmit && vite build",
+    "build:singlefile": "node scripts/fetch-ner-model.mjs && tsc --noEmit && vite build --config vite.singlefile.config.ts",
     "preview": "vite preview",
     "test": "vitest run",
     "lint": "tsc --noEmit"
@@ -25,6 +26,7 @@
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
     "vite-plugin-pwa": "^0.21.1",
+    "vite-plugin-singlefile": "^2.3.3",
     "vitest": "^3.0.5"
   }
 }

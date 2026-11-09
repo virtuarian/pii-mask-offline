@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { NerDetection, NerThresholds } from "../lib/detectors/ner/pipeline";
 import type { NerWorkerResponse } from "../workers/ner.worker";
+import { createNerWorker } from "../workers/createNerWorker";
 
 export type NerModelStatus = "idle" | "loading" | "ready" | "error";
 
@@ -24,9 +25,7 @@ export function useNerModel(): UseNerModel {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const worker = new Worker(new URL("../workers/ner.worker.ts", import.meta.url), {
-      type: "module",
-    });
+    const worker = createNerWorker();
     workerRef.current = worker;
     setStatus("loading");
 
